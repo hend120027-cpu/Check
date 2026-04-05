@@ -1,4 +1,6 @@
 import logging
+from os import getenv
+from huepy import bad
 from pyromod import Client
 from pyrogram import filters
 from pyrogram.enums import ParseMode, ChatMemberStatus
@@ -7,13 +9,13 @@ from utilsdf.functions import bot_on
 from utilsdf.db import Database
 from utilsdf.vars import PREFIXES
 
-# -----------------------------------
-# ضع بياناتك هنا مباشرة
-API_ID = 6843321125  # ضع هنا الـ API_ID الخاص بك
-API_HASH = "YOUR_API_HASH"  # ضع هنا الـ API_HASH الخاص بك
-BOT_TOKEN = "7834120140:AAG2HFrpuictfFSZisF1m1__EjE0zcnl_cE"  # ضع هنا التوكن
-CHANNEL_LOGS = -1001494650944  # ضع هنا ID الجروب أو القناة
-# -----------------------------------
+# TODO: Replace with your credentials or use environment variables
+# Get your API credentials from https://my.telegram.org
+# Get your bot token from @BotFather on Telegram
+API_ID = getenv('6843321125', 'YOUR_API_ID')
+API_HASH = getenv('TELEGRAM_API_HASH', 'YOUR_API_HASH')
+BOT_TOKEN = getenv('7834120140:AAG2HFrpuictfFSZisF1m1__EjE0zcnl_cE', 'YOUR_BOT_TOKEN')
+CHANNEL_LOGS = getenv('https://t.me/+xxbDXfpnF0kyODBk', 'YOUR_CHANNEL_ID')
 
 app = Client(
     "bot",
@@ -42,47 +44,44 @@ async def warn_user(client: Client, callback_query: CallbackQuery):
 
 @app.on_message(filters.text)
 async def user_ban(client: Client, m: Message):
-    if not m.from_user or not m.text:
-        return
 
+    if not m.from_user:
+        return
+    if not m.text:
+        return
     try:
         if not m.text[0] in PREFIXES:
             return
     except UnicodeDecodeError:
         return
-
     chat_id = m.chat.id
-    user_id = m.from_user.id
-    username = m.from_user.username
-
-    # فقط صاحب الـ ID هذا يمكنه تشغيل البوت
-    if user_id != 6843321125:  # ضع هنا ID الخاص بك
-        return
-
     with Database() as db:
-        if chat_id == CHANNEL_LOGS:
+        if chat_id == -1001494650944:
             async for member in m.chat.get_members():
                 if not member.user:
                     continue
                 if member.status == ChatMemberStatus.ADMINISTRATOR:
                     continue
-                member_id = member.user.id
-
-                # أنت تعتبر أدمن دائمًا
-                if db.is_seller_or_admin(member_id) or member_id == 6843321125:
+                user_id = member.user.id
+                if db.is_seller_or_admin(user_id):
                     continue
-                if db.is_premium(member_id):
+                is_premium = db.is_premium(user_id)
+                if is_premium:
                     continue
-                if db.user_has_credits(member_id):
+                if db.user_has_credits(user_id):
                     continue
+                await m.chat.ban_member(user_id)
+                info=db.get_info_user(user_id)
+                await client.send_message(-1001494650944, f"<b>User eliminado: @{info['USERNAME']}</b>")
 
-                await m.chat.ban_member(member_id)
-                info = db.get_info_user(member_id)
-                await client.send_message(
-                    CHANNEL_LOGS,
-                    f"<b>User eliminado: @{info['USERNAME']}</b>"
-                )
-
+        #         if not db.is_admin(m.from_user.id):
+        #             return await m.reply(
+        #                 """𝘽𝙤𝙩 𝙪𝙣𝙙𝙚𝙧 𝙈𝙖𝙣𝙩𝙚𝙣𝙞𝙚𝙣𝙘𝙚 ⚠️
+        # 𝙍𝙚𝙖𝙨𝙤𝙣 -» <code>Mantenimiento by @Fucker_504</code>
+        #        """
+        #             )
+        user_id = m.from_user.id
+        username = m.from_user.username
         db.remove_expireds_users()
         banned = db.is_ban(user_id)
         if banned:
