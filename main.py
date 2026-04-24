@@ -36,67 +36,85 @@ user_api_keys = {}
 user_search_results = {}
 user_language = {}
 
-def fetch_url(url):
-    if not url.startswith(('http://', 'https://')):
+# --- [ محرك الفحص الناري المطور - The Treasure Hunter ] ---
+
+def check_site(url, user=None):
+    start_time = time.time()
+    # تنظيف الرابط وإضافة البروتوكول إذا نقص
+    if not url.startswith(('http://', 'https://')): 
         url = 'https://' + url
+    
     try:
-        scraper = cloudscraper.create_scraper()
-        return scraper.get(url, timeout=10)
-    except:
-        try:
-            if url.startswith('https://'):
-                url = 'http://' + url[8:]
-                return scraper.get(url, timeout=10)
-        except:
-            return None
-    return None
+        # 1. محرك الزيارة (تخطي حماية Cloudflare و Bot Detection)
+        scraper = cloudscraper.create_scraper(
+            browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}
+        )
+        response = scraper.get(url, timeout=15, verify=False)
+        
+        html = response.text
+        html_low = html.lower()
+        final_url = response.url
+        domain = urlparse(final_url).netloc or url
 
-def detect_gateways(html):
-    found = [name for key, name in GATEWAYS.items() if key in html.lower()]
-    return found or ["Unknown"]
+        # 2. كشف بوابات الدفع (Gateways Detection)
+        # بيلف على القاموس اللي عندك ويطلع كل البوابات الموجودة في السورس كود
+        found_gws = [name for key, name in GATEWAYS.items() if key in html_low]
+        if not found_gws: found_gws = ["Unknown/Custom ⚠️"]
 
-def check_security(html, domain):
-    html_lower = html.lower()
-    return {
-        'captcha': any(term in html_lower for term in SECURITY_TERMS),
-        'cloudflare': any(term in html for term in CLOUDFLARE_TERMS),
-        'auth': any(_check_auth_path(domain, p) for p in AUTH_PATHS),
-        'vbv': any(re.search(k, html, re.IGNORECASE) for k in VBV_KEYWORDS)
-    }
+        # 3. استخراج التوكنات (Deep Token Extraction)
+        # الجزء ده هو اللي بيجيب الـ PK والـ Access Tokens
+        tokens = []
+        # Stripe Public Key
+        pk_match = re.search(r'(pk_live_[a-zA-Z0-9]{20,})', html)
+        if pk_match: tokens.append(f"Stripe PK: `{pk_match.group(1)}`")
+        
+        # PayPal Access Token
+        pp_match = re.search(r'access_token-([\w-]+)', html)
+        if pp_match: tokens.append(f"PP Token: `{pp_match.group(1)}`")
+        
+        # Braintree Client Token
+        bt_match = re.search(r'client_token["\']?\s?:\s?["\']?([^"\']+)["\']?', html)
+        if bt_match: tokens.append(f"BT Client Token: `Found ✅`")
 
-def _check_auth_path(domain, path):
-    try:
-        return requests.get(f"http://{domain}{path}", timeout=5).status_code == 200
-    except:
-        return False
+        # 4. تحليل الحماية (Security Analysis)
+        security = {
+            'captcha': any(term in html_low for term in SECURITY_TERMS),
+            'cloudflare': any(term in html for term in CLOUDFLARE_TERMS) or response.status_code == 403,
+            'auth': any(path in response.url for path in AUTH_PATHS),
+            'vbv': any(re.search(k, html, re.IGNORECASE) for k in VBV_KEYWORDS)
+        }
+        
+        elapsed = round(time.time() - start_time, 2)
+        token_display = "\n┃ ⁞ ".join(tokens) if tokens else "No Public Tokens Found"
+        check_by = f"\n┃•➤ Checked by ➜ [{user.first_name}](tg://user?id={user.id}) 🕷" if user else ""
 
-def extract_domain(url):
-    parsed = urlparse(url if url.startswith(('http://', 'https://')) else 'http://' + url)
-    return parsed.netloc or url.split('/')[0]
-
-def format_result(display_url, gateways, security, elapsed, user=None):
-    domain = extract_domain(display_url)
-    display = domain if len(display_url) < 50 else display_url[:50] + "..."
-
-    check_by = f"\n┃•➤ Checked by ➜ [{user.first_name}](tg://user?id={user.id}) 🕷" if user else ""
-    return f"""
+        # التنسيق النهائي للرسالة (الاحترافي)
+        return f"""
 ┏━━━━━━━⍟
 ┃•Website Analysis ✅
 ┗━━━━━━━━━━━━⊛
 ┏━━━━━━━⍟
-┃•➤ Site ➜ `{display}` ⎙
-┃•➤ Gateways ➜ {', '.join(gateways)} 🍂
+┃•➤ Site ➜ `{domain}` ⎙
+┃•➤ Gateways ➜ {', '.join(found_gws)} 🍂
+┃•➤ Status ➜ WORKING ✅
 ┃•➤ Security ⁞ 
 ┃   ❁ Captcha ➜ {'✅' if security['captcha'] else '⛔'}
 ┃   ❁ Cloudflare ➜ {'✅' if security['cloudflare'] else '⛔'}
 ┃   ❁ Login/Auth ➜ {'✅' if security['auth'] else '⛔'}
 ┃   ❁ VBV/3D Secure ➜ {'✅' if security['vbv'] else '⛔'}
+┣━━━━━━━━━━━━⊛
+┃•➤ Tokens Found ⁞
+┃ ⁞ {token_display}
 ┗━━━━━━━━━━━━⊛  
 ┏━━━━━━━⍟
 ┃•➤ Time ➜ {elapsed}s ⌚️{check_by}
 ┃•➤ Bot ➜ [Gateways Checker Bot](https://t.me/Jaasemm)  
 ┗━━━━━━━━━━━━⊛
 """
+    except Exception as e:
+        elapsed = round(time.time() - start_time, 2)
+        return f"❌ **Failed to check:** `{url}`\n┃ **Error:** {str(e)[:100]} ({elapsed}s)"
+
 
 def check_site(url, user=None):
     start = time.time()
