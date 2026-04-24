@@ -49,7 +49,7 @@ def check_site(url, user=None):
         scraper = cloudscraper.create_scraper(
             browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}
         )
-        response = scraper.get(url, timeout=15, verify=False)
+        response = scraper.get(url, timeout=15)
         
         html = response.text
         html_low = html.lower()
